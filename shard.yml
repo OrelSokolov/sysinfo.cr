@@ -1,0 +1,12 @@
+name: sysinfo
+version: 0.1.0
+description: |
+  Cross-platform system & process memory info for Crystal — a small
+  port of the Rust sysinfo crate's surface: global RAM stats plus a
+  pid/parent/RSS process table with process-tree RSS summation.
+
+  Linux reads /proc, macOS uses libproc + Mach host_statistics64,
+  Windows uses Toolhelp32 + GetProcessMemoryInfo.
+authors:
+  - oleg
+crystal: ">= 1.10.0"
