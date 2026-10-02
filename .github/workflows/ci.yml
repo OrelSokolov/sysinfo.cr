@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    name: Build — ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refresh apt index
+        if: runner.os == 'Linux'
+        run: sudo apt-get update
+      - uses: crystal-lang/install-crystal@v1
+      - name: Install shards
+        run: shards install
+      - name: Compile
+        run: crystal build --no-codegen src/sysinfo.cr
+
+  test:
+    name: Test — ${{ matrix.os }} (shard ${{ matrix.shard }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        shard: [0, 1]
+    env:
+      TOTAL_SHARDS: 2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refresh apt index
+        if: runner.os == 'Linux'
+        run: sudo apt-get update
+      - uses: crystal-lang/install-crystal@v1
+      - name: Install shards
+        run: shards install
+      - name: Run specs (shard ${{ matrix.shard }} of ${{ env.TOTAL_SHARDS }})
+        shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          shard_files=$(find spec -name '*_spec.cr' | sort | awk -v s="$SHARD" -v n="$TOTAL_SHARDS" '(NR - 1) % n == s')
+          if [ -z "$shard_files" ]; then
+            echo "Shard $SHARD/$TOTAL_SHARDS has no spec files, skipping."
+            exit 0
+          fi
+          echo "Shard $SHARD/$TOTAL_SHARDS runs:" $shard_files
+          crystal spec --error-on-warnings $shard_files
