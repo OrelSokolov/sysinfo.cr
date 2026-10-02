@@ -15,6 +15,9 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
+      - name: Refresh apt index
+        if: runner.os == 'Linux'
+        run: sudo apt-get update
       - uses: crystal-lang/install-crystal@v1
       - name: Install shards
         run: shards install
@@ -33,6 +36,9 @@ jobs:
       TOTAL_SHARDS: 2
     steps:
       - uses: actions/checkout@v4
+      - name: Refresh apt index
+        if: runner.os == 'Linux'
+        run: sudo apt-get update
       - uses: crystal-lang/install-crystal@v1
       - name: Install shards
         run: shards install
