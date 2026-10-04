@@ -1,5 +1,5 @@
 name: sysinfo
-version: 0.1.0
+version: 1.0.0
 description: |
   Cross-platform system & process memory info for Crystal — a small
   port of the Rust sysinfo crate's surface: global RAM stats plus a
