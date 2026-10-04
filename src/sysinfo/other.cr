@@ -10,5 +10,13 @@
 
     def self.platform_refresh_processes : Nil
     end
+
+    def self.platform_cpu_ticks : Array({UInt64, UInt64})?
+      nil
+    end
+
+    def self.platform_network_counters : {UInt64, UInt64}?
+      nil
+    end
   end
 {% end %}

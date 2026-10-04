@@ -53,7 +53,7 @@
       status.dw_length = sizeof(LibWinMemory::MEMORYSTATUSEX).to_u32
       return nil if LibWinMemory.global_memory_status_ex(pointerof(status)) == 0
       Memory.new((status.ull_total_phys // KB).to_i64,
-                 (status.ull_avail_phys // KB).to_i64)
+        (status.ull_avail_phys // KB).to_i64)
     end
 
     def self.platform_refresh_processes : Nil
@@ -82,6 +82,15 @@
       end
       LibC.CloseHandle(snapshot)
       store_processes(processes)
+    end
+
+    # CPU / network counters are not implemented for Windows yet.
+    def self.platform_cpu_ticks : Array({UInt64, UInt64})?
+      nil
+    end
+
+    def self.platform_network_counters : {UInt64, UInt64}?
+      nil
     end
   end
 {% end %}

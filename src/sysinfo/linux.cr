@@ -43,5 +43,38 @@
       end
       store_processes(processes)
     end
+
+    # Per-core (busy, idle) jiffy counters from /proc/stat
+    # ("cpuN: user nice system idle iowait irq softirq steal ...").
+    def self.platform_cpu_ticks : Array({UInt64, UInt64})?
+      cores = [] of {UInt64, UInt64}
+      File.each_line("/proc/stat") do |line|
+        break unless line.starts_with?("cpu")
+        next if line.starts_with?("cpu ") # aggregate line comes first
+        fields = line.split
+        busy = {1, 2, 3, 6, 7, 8}.sum { |i| fields[i]?.try(&.to_u64?) || 0_u64 }
+        idle = (fields[4]?.try(&.to_u64?) || 0_u64) &+ (fields[5]?.try(&.to_u64?) || 0_u64)
+        cores << {busy, idle}
+      end
+      cores.empty? ? nil : cores
+    rescue File::NotFoundError
+      nil
+    end
+
+    # (received, sent) byte counters from /proc/net/dev, skipping lo.
+    def self.platform_network_counters : {UInt64, UInt64}?
+      received = 0_u64
+      sent = 0_u64
+      File.each_line("/proc/net/dev") do |line|
+        next unless separator = line.index(':')
+        next if line[0, separator].strip == "lo"
+        columns = line[(separator + 1)..].split
+        received += columns[0]?.try(&.to_u64?) || 0_u64
+        sent += columns[8]?.try(&.to_u64?) || 0_u64
+      end
+      {received, sent}
+    rescue File::NotFoundError
+      nil
+    end
   end
 {% end %}

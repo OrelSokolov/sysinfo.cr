@@ -5,6 +5,10 @@
 #   Sysinfo.refresh_processes         — rebuild the pid/parent/RSS snapshot
 #   Sysinfo.processes                 — the last snapshot
 #   Sysinfo.process_tree_memory_kb    — RSS of a process + all descendants
+#   Sysinfo.refresh_cpu               — sample tick counters, update per-core load
+#   Sysinfo.cpu_percentages           — per-core busy percent since the last sample
+#   Sysinfo.refresh_network           — sample interface counters, update rates
+#   Sysinfo.network                   — totals since boot + rates since the last sample
 #
 # The library is synchronous, like the Rust crate: callers decide when
 # and where to refresh (h2term hides it on a monitor fiber).
@@ -14,8 +18,9 @@
 #             only thread-group leaders, so per-thread RSS can never be
 #             double counted (upstream sysinfo has to filter threads).
 #   macOS   — sysctl for RAM sizing, host_statistics64 for available
-#             pages, libproc for the process table. RSS reads need
-#             same-user (or root) processes; others report 0 KB.
+#             pages, libproc for the process table. proc_pidinfo only
+#             succeeds for same-uid (or root) processes; the snapshot
+#             skips everyone else.
 #   Windows — GlobalMemoryStatusEx + Toolhelp32 process snapshot +
 #             GetProcessMemoryInfo for working sets (0 KB when access
 #             is denied). The Windows backend is written against the
@@ -53,6 +58,20 @@ module Sysinfo
     getter memory_kb : Int64
 
     def initialize(@pid : Int32, @parent_pid : Int32?, @memory_kb : Int64)
+    end
+  end
+
+  # Network traffic; sizes in KB. The rates are averages over the span
+  # between the previous refresh_network and this one (0 on the first
+  # sample, like cpu_percentages before the second refresh_cpu).
+  struct Network
+    getter total_received_kb : Int64
+    getter total_sent_kb : Int64
+    getter received_kb_s : Int64
+    getter sent_kb_s : Int64
+
+    def initialize(@total_received_kb : Int64, @total_sent_kb : Int64,
+                   @received_kb_s : Int64, @sent_kb_s : Int64)
     end
   end
 
@@ -117,5 +136,71 @@ module Sysinfo
   protected def self.store_processes(processes : Array(Process)) : Nil
     @@processes = processes
     @@children_built = false
+  end
+
+  # CPU state; swapped by refresh_cpu. Platforms deliver per-core
+  # (busy, idle) tick counters — the delta math is shared.
+  @@cpu_percentages : Array(Int32) = [] of Int32
+  @@last_cpu_ticks : Array({UInt64, UInt64})? = nil
+
+  # Sample CPU counters and update per-core percentages. The first call
+  # only stores a baseline, so percentages read 0 until the second call
+  # (space the calls ~1 s apart for readable rates).
+  def self.refresh_cpu : Nil
+    cores = platform_cpu_ticks
+    percentages =
+      if cores && (previous = @@last_cpu_ticks) && previous.size == cores.size
+        cores.zip(previous).map do |current, before|
+          busy = current[0] &- before[0]
+          idle = current[1] &- before[1]
+          total = busy &+ idle
+          total == 0 ? 0 : ((busy.to_f / total) * 100.0).round.to_i32.clamp(0, 100)
+        end
+      elsif cores
+        Array.new(cores.size, 0)
+      else
+        [] of Int32
+      end
+    @@cpu_percentages = percentages
+    @@last_cpu_ticks = cores
+  end
+
+  # Busy percent per core since the previous refresh_cpu (empty until
+  # refresh_cpu ran; zeros after only one call).
+  def self.cpu_percentages : Array(Int32)
+    @@cpu_percentages
+  end
+
+  # Network state; swapped by refresh_network.
+  @@network : Network? = nil
+  @@last_net_counters : {UInt64, UInt64}? = nil
+  @@last_net_at : Time::Instant? = nil
+
+  # Sample interface counters and update traffic rates. Like CPU, the
+  # first call only stores a baseline. Loopback is excluded.
+  def self.refresh_network : Nil
+    counters = platform_network_counters
+    network =
+      if counters
+        now = Time.instant
+        received_kb_s = 0_i64
+        sent_kb_s = 0_i64
+        if (before = @@last_net_counters) && (started = @@last_net_at) &&
+           (seconds = (now - started).total_seconds) > 0
+          received_kb_s = ((counters[0] &- before[0]).to_f / 1024 / seconds).round.to_i64
+          sent_kb_s = ((counters[1] &- before[1]).to_f / 1024 / seconds).round.to_i64
+        end
+        Network.new((counters[0] // 1024).to_i64, (counters[1] // 1024).to_i64,
+          received_kb_s, sent_kb_s)
+      end
+    @@network = network
+    @@last_net_counters = counters
+    @@last_net_at = counters ? Time.instant : nil
+  end
+
+  # The last network sample (nil until refresh_network ran, or on
+  # platforms without a backend).
+  def self.network : Network?
+    @@network
   end
 end

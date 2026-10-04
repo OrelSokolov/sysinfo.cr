@@ -13,7 +13,7 @@ describe Sysinfo do
     Sysinfo.process_tree_memory_kb(nil).should eq(0)
   end
 
-  {% if flag?(:linux) %}
+  {% if flag?(:linux) || flag?(:darwin) %}
     it "reads global memory" do
       mem = Sysinfo.memory
       mem.should_not be_nil
@@ -27,6 +27,24 @@ describe Sysinfo do
       me.should_not be_nil
       me.not_nil!.memory_kb.should be > 0
       Sysinfo.process_tree_memory_kb(Process.pid.to_i32).should be > 0
+    end
+
+    it "samples per-core cpu percentages" do
+      Sysinfo.refresh_cpu # baseline only
+      Sysinfo.cpu_percentages.size.should be > 0
+      Sysinfo.cpu_percentages.each { |p| (0..100).should contain(p) }
+      Sysinfo.refresh_cpu
+      Sysinfo.cpu_percentages.each { |p| (0..100).should contain(p) }
+    end
+
+    it "samples network counters and rates" do
+      Sysinfo.refresh_network # baseline only
+      net = Sysinfo.network
+      net.should_not be_nil
+      net.not_nil!.total_received_kb.should be >= 0
+      net.not_nil!.received_kb_s.should eq(0)
+      Sysinfo.refresh_network
+      Sysinfo.network.not_nil!.received_kb_s.should be >= 0
     end
   {% end %}
 end
