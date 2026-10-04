@@ -13,7 +13,7 @@ describe Sysinfo do
     Sysinfo.process_tree_memory_kb(nil).should eq(0)
   end
 
-  {% if flag?(:linux) || flag?(:darwin) %}
+  {% if flag?(:linux) || flag?(:darwin) || flag?(:windows) %}
     it "reads global memory" do
       mem = Sysinfo.memory
       mem.should_not be_nil

@@ -23,7 +23,7 @@ and where to refresh (h2term hides it on a background fiber).
 |---|---|---|---|---|
 | Linux | `/proc/meminfo` | `/proc/<pid>/status` (PPid + VmRSS) | `/proc/stat` | `/proc/net/dev` |
 | macOS | `sysctl` + `host_statistics64` | libproc (`proc_listallpids`, `proc_pidinfo`) | `host_processor_info` | `sysctl(NET_RT_IFLIST2)` |
-| Windows | `GlobalMemoryStatusEx` | Toolhelp32 + `GetProcessMemoryInfo` (best effort, not yet tested on a Windows host) | — | — |
+| Windows | `GlobalMemoryStatusEx` | Toolhelp32 + `GetProcessMemoryInfo` | `NtQuerySystemInformation` | `GetIfTable2` |
 | Other | `nil` | empty | — | — |
 
 On Linux `/proc`'s top level lists only thread-group leaders, so

@@ -1,11 +1,12 @@
 # Windows backend: GlobalMemoryStatusEx for RAM, a Toolhelp32 process
-# snapshot for pid/ppid, GetProcessMemoryInfo for working sets.
+# snapshot for pid/ppid, GetProcessMemoryInfo for working sets,
+# NtQuerySystemInformation for per-core CPU ticks, GetIfTable2 for
+# interface byte counters.
 #
-# Toolhelp32/OpenProcess/CloseHandle come from the stdlib's LibC; only
-# the memory calls are declared here. NOTE: written against the
-# documented Win32 APIs, but not yet compiled or run on a Windows host
-# — treat as best effort. Processes we can't open (services, other
-# users) still appear in the table with 0 KB.
+# Toolhelp32/OpenProcess/CloseHandle come from the stdlib's LibC; the
+# memory/ntdll/iphlpapi calls are declared here against the SDK headers
+# (netioapi.h layout verified against 10.0.19041.0). Processes we can't
+# open (services, other users) still appear in the table with 0 KB.
 
 {% if flag?(:windows) %}
   lib LibWinMemory
@@ -24,6 +25,7 @@
     fun global_memory_status_ex = GlobalMemoryStatusEx(buffer : MEMORYSTATUSEX*) : Int32
   end
 
+  @[Link("psapi")]
   lib LibPsapi
     struct PROCESS_MEMORY_COUNTERS
       cb : UInt32
@@ -43,6 +45,92 @@
                                                        cb : UInt32) : Int32
   end
 
+  @[Link("ntdll")]
+  lib LibNtDll
+    # winternl.h SYSTEM_INFORMATION_CLASS
+    SystemProcessorPerformanceInformation = 8_u32
+
+    fun nt_query_system_information = NtQuerySystemInformation(
+      system_information_class : UInt32, system_information : UInt8*,
+      system_information_length : UInt32, return_length : UInt32*) : Int32
+  end
+
+  @[Link("iphlpapi")]
+  lib LibIphlpapi
+    # ipifcons.h IFTYPE for software loopback
+    IF_TYPE_SOFTWARE_LOOPBACK = 24_u32
+
+    # ifdef.h sizing used by MIB_IF_ROW2:
+    #   IF_MAX_STRING_SIZE + 1         = 257 WCHARs
+    #   IF_MAX_PHYS_ADDRESS_LENGTH     = 32 bytes
+    IF_MAX_STRING_SIZE          =  256
+    IF_MAX_PHYS_ADDRESS_LENGTH  =   32
+
+    # GUID (align 4, 16 bytes) — layout-compatible placeholder for the
+    # interface/network GUIDs.
+    struct GUID
+      data1 : UInt32
+      data2 : UInt16
+      data3 : UInt16
+      data4 : UInt8[8]
+    end
+
+    # netioapi.h MIB_IF_ROW2: field list and types 1:1 with the header
+    # (all the enum fields are 4-byte); the compiler lays it out per the
+    # C ABI, so only InOctets/OutOctets and Type are actually read.
+    struct MIB_IF_ROW2
+      interface_luid : UInt64                       # NET_LUID (union over ULONG64)
+      interface_index : UInt32                      # NET_IFINDEX
+      interface_guid : GUID
+      alias : UInt16[257]                           # WCHAR[IF_MAX_STRING_SIZE + 1]
+      description : UInt16[257]
+      physical_address_length : UInt32
+      physical_address : UInt8[32]                  # IF_MAX_PHYS_ADDRESS_LENGTH
+      permanent_physical_address : UInt8[32]
+      mtu : UInt32
+      type : UInt32                                 # IFTYPE
+      tunnel_type : Int32                           # TUNNEL_TYPE enum
+      media_type : Int32                            # NDIS_MEDIUM enum
+      physical_medium_type : Int32                  # NDIS_PHYSICAL_MEDIUM enum
+      access_type : Int32                           # NET_IF_ACCESS_TYPE enum
+      direction_type : Int32                        # NET_IF_DIRECTION_TYPE enum
+      interface_and_oper_status_flags : UInt8       # 8 x 1-bit BOOLEANs
+      oper_status : Int32                           # IF_OPER_STATUS enum
+      admin_status : Int32                          # NET_IF_ADMIN_STATUS enum
+      media_connect_state : Int32                   # NET_IF_MEDIA_CONNECT_STATE enum
+      network_guid : GUID                           # NET_IF_NETWORK_GUID
+      connection_type : Int32                       # NET_IF_CONNECTION_TYPE enum
+      transmit_link_speed : UInt64
+      receive_link_speed : UInt64
+      in_octets : UInt64
+      in_ucast_pkts : UInt64
+      in_nucast_pkts : UInt64
+      in_discards : UInt64
+      in_errors : UInt64
+      in_unknown_protos : UInt64
+      in_ucast_octets : UInt64
+      in_multicast_octets : UInt64
+      in_broadcast_octets : UInt64
+      out_octets : UInt64
+      out_ucast_pkts : UInt64
+      out_nucast_pkts : UInt64
+      out_discards : UInt64
+      out_errors : UInt64
+      out_ucast_octets : UInt64
+      out_multicast_octets : UInt64
+      out_broadcast_octets : UInt64
+      out_q_len : UInt64
+    end
+
+    struct MIB_IF_TABLE2
+      num_entries : UInt32
+      table : MIB_IF_ROW2[1]
+    end
+
+    fun get_if_table2 = GetIfTable2(table : MIB_IF_TABLE2**) : UInt32
+    fun free_mib_table = FreeMibTable(buffer : Void*) : Void
+  end
+
   module Sysinfo
     KB = 1024_u64
 
@@ -58,7 +146,7 @@
 
     def self.platform_refresh_processes : Nil
       snapshot = LibC.CreateToolhelp32Snapshot(LibC::TH32CS_SNAPPROCESS, 0)
-      return if snapshot.null?
+      return if snapshot == LibC::INVALID_HANDLE_VALUE
 
       processes = [] of Process
       entry = LibC::PROCESSENTRY32W.new
@@ -84,13 +172,62 @@
       store_processes(processes)
     end
 
-    # CPU / network counters are not implemented for Windows yet.
+    # Per-core (busy, idle) 100-ns tick counters from
+    # NtQuerySystemInformation(SystemProcessorPerformanceInformation):
+    # one 48-byte SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION per core
+    # {IdleTime, KernelTime, UserTime, Reserved1[2], Reserved2}, read
+    # through documented offsets like the darwin backend. KernelTime
+    # includes idle, so busy = kernel + user - idle (interrupts/DPC
+    # count as busy). NB: the kernel rejects lengths that are not an
+    # exact multiple of 48, so the needed size is probed first (a null
+    # buffer returns STATUS_INFO_LENGTH_MISMATCH and the byte count).
+    # This class reports only the processor group of the calling
+    # process — enough for a terminal monitor.
     def self.platform_cpu_ticks : Array({UInt64, UInt64})?
-      nil
+      entry_size = 48
+      written = uninitialized UInt32
+      LibNtDll.nt_query_system_information(
+        LibNtDll::SystemProcessorPerformanceInformation, Pointer(UInt8).null,
+        0_u32, pointerof(written))
+      return nil if written == 0
+      size = (written + entry_size - 1) // entry_size * entry_size
+      buffer = Bytes.new(size)
+      status = LibNtDll.nt_query_system_information(
+        LibNtDll::SystemProcessorPerformanceInformation, buffer.to_unsafe,
+        buffer.size.to_u32, pointerof(written))
+      return nil if status != 0
+      count = written // entry_size
+      return nil if count == 0
+      cores = Array({UInt64, UInt64}).new(count.to_i32) do |i|
+        entry = buffer + (i &* entry_size)
+        idle = IO::ByteFormat::SystemEndian.decode(UInt64, entry)
+        kernel = IO::ByteFormat::SystemEndian.decode(UInt64, entry + 8)
+        user = IO::ByteFormat::SystemEndian.decode(UInt64, entry + 16)
+        {(kernel &+ user) &- idle, idle}
+      end
+      cores
     end
 
+    # (received, sent) byte counters summed over non-loopback
+    # interfaces from GetIfTable2's MIB_IF_ROW2 table (64-bit
+    # counters, no 4 GB wrap like the old MIB_IFROW / macOS). The
+    # table is heap-allocated by the API and freed with FreeMibTable.
     def self.platform_network_counters : {UInt64, UInt64}?
-      nil
+      table = Pointer(LibIphlpapi::MIB_IF_TABLE2).null
+      return nil if LibIphlpapi.get_if_table2(pointerof(table)) != 0
+      return nil if table.null?
+
+      received = 0_u64
+      sent = 0_u64
+      rows = table.value.table.to_unsafe
+      table.value.num_entries.times do |i|
+        row = rows[i]
+        next if row.type == LibIphlpapi::IF_TYPE_SOFTWARE_LOOPBACK
+        received &+= row.in_octets
+        sent &+= row.out_octets
+      end
+      LibIphlpapi.free_mib_table(table.as(Void*))
+      {received, sent}
     end
   end
 {% end %}

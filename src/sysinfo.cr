@@ -23,9 +23,8 @@
 #             skips everyone else.
 #   Windows — GlobalMemoryStatusEx + Toolhelp32 process snapshot +
 #             GetProcessMemoryInfo for working sets (0 KB when access
-#             is denied). The Windows backend is written against the
-#             documented Win32 APIs but not yet compiled/tested on a
-#             Windows host.
+#             is denied), NtQuerySystemInformation for per-core CPU
+#             ticks, GetIfTable2 for interface byte counters.
 #   Other   — memory returns nil, processes stay empty.
 
 require "./sysinfo/*"
