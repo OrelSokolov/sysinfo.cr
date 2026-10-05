@@ -77,10 +77,11 @@
       nil
     end
 
-    # GPU readings: the NVIDIA cards through NVML plus every amdgpu
-    # card in KFD order.
+    # GPU readings: the NVIDIA cards through NVML, the Intel GPUs
+    # through Level Zero Sysman, plus every amdgpu card in KFD order.
     def self.platform_gpus : Array(Gpu)
       gpus = nvml_gpus
+      gpus.concat(zes_gpus)
       amd_device_dirs.each do |dir|
         gpus << amd_gpu(dir)
       end

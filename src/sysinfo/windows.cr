@@ -230,10 +230,13 @@
       {received, sent}
     end
 
-    # GPU readings: the NVIDIA cards through runtime-loaded NVML (AMD
-    # on Windows would need ADL and is not covered).
+    # GPU readings: the NVIDIA cards through runtime-loaded NVML and
+    # the Intel GPUs through runtime-loaded Level Zero Sysman (AMD on
+    # Windows would need ADL and is not covered).
     def self.platform_gpus : Array(Gpu)
-      nvml_gpus
+      gpus = nvml_gpus
+      gpus.concat(zes_gpus)
+      gpus
     end
   end
 {% end %}

@@ -16,6 +16,18 @@ describe Sysinfo do
     Sysinfo::Gpu.new(:nvidia, mem_used_kb: 250_i64, mem_total_kb: 0_i64).mem_percent.should be_nil
   end
 
+  {% if flag?(:linux) || flag?(:windows) %}
+    it "computes intel engine load between snapshots" do
+      # 40% busy over a 10ms window
+      Sysinfo::Zes.delta_percent(0_u64, 0_u64, 4_000_000_u64, 10_000_000_u64).should eq(40)
+      Sysinfo::Zes.delta_percent(0_u64, 0_u64, 10_000_000_u64, 10_000_000_u64).should eq(100)
+      # same snapshot twice: no measurable window
+      Sysinfo::Zes.delta_percent(5_u64, 5_u64, 5_u64, 5_u64).should be_nil
+      # counter reset / driver reinit clamps to zero, not negative
+      Sysinfo::Zes.delta_percent(9_u64, 0_u64, 1_u64, 5_u64).should eq(0)
+    end
+  {% end %}
+
   it "reports unknown tree memory for nil pid" do
     Sysinfo.process_tree_memory_kb(nil).should eq(0)
   end

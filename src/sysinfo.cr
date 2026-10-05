@@ -30,9 +30,11 @@
 #             (runtime LoadLibraryA) for NVIDIA GPUs.
 #   GPU     — NVIDIA through NVML loaded at runtime (Linux dlopen,
 #             Windows LoadLibraryA); AMD through the amdgpu driver's
-#             sysfs files on Linux; macOS / Intel Arc report no GPUs
-#             (Intel's xe driver only accounts VRAM per-client through
-#             root-only fdinfo).
+#             sysfs files on Linux; Intel (integrated and Arc) through
+#             Level Zero Sysman (libze_loader.so.1 / ze_loader.dll)
+#             loaded at runtime on Linux and Windows; macOS reports no
+#             GPUs. Level Zero's engine load and power are counters, so
+#             they only exist after the second refresh_gpus.
 #   Other   — memory returns nil, processes stay empty.
 
 require "./sysinfo/*"

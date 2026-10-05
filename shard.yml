@@ -4,8 +4,8 @@ description: |
   Cross-platform system & process memory info for Crystal — a small
   port of the Rust sysinfo crate's surface: global RAM stats plus a
   pid/parent/RSS process table with process-tree RSS summation, and
-  GPU readings (VRAM, load, temperature, power) through NVML or the
-  amdgpu driver's sysfs files.
+  GPU readings (VRAM, load, temperature, power) through NVML, the
+  amdgpu driver's sysfs files, or Intel's Level Zero Sysman.
 
   Linux reads /proc, macOS uses libproc + Mach host_statistics64,
   Windows uses Toolhelp32 + GetProcessMemoryInfo.

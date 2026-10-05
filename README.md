@@ -25,9 +25,9 @@ and where to refresh (h2term hides it on a background fiber).
 
 | Platform | RAM | Process table | CPU cores | Network | GPU |
 |---|---|---|---|---|---|
-| Linux | `/proc/meminfo` | `/proc/<pid>/status` (PPid + VmRSS) | `/proc/stat` | `/proc/net/dev` | NVML (`dlopen`) + amdgpu sysfs |
+| Linux | `/proc/meminfo` | `/proc/<pid>/status` (PPid + VmRSS) | `/proc/stat` | `/proc/net/dev` | NVML (`dlopen`) + amdgpu sysfs + Level Zero (`dlopen`) |
 | macOS | `sysctl` + `host_statistics64` | libproc (`proc_listallpids`, `proc_pidinfo`) | `host_processor_info` | `sysctl(NET_RT_IFLIST2)` | — |
-| Windows | `GlobalMemoryStatusEx` | Toolhelp32 + `GetProcessMemoryInfo` | `NtQuerySystemInformation` | `GetIfTable2` | NVML (`LoadLibraryA`) |
+| Windows | `GlobalMemoryStatusEx` | Toolhelp32 + `GetProcessMemoryInfo` | `NtQuerySystemInformation` | `GetIfTable2` | NVML (`LoadLibraryA`) + Level Zero (`LoadLibraryA`) |
 | Other | `nil` | empty | — | — | — |
 
 GPU readings come from the same sources Strata's monitor uses: NVIDIA's
@@ -35,9 +35,17 @@ own NVML library, loaded at runtime from the driver (`libnvidia-ml.so.1`
 / `nvml.dll`) so there is no compile-time binding, and — on Linux — the
 amdgpu driver's sysfs files (KFD topology → `renderD*` device →
 `gpu_busy_percent`, `mem_info_vram_*`, the `hwmon` temperature/power
-sensors); no ROCm library needed. AMD on Windows would need ADL, and
-Intel's xe driver only accounts VRAM per-client through root-only
-fdinfo, so neither reports GPUs here.
+sensors); no ROCm library needed. AMD on Windows would need ADL, so it
+is not covered there.
+
+Intel GPUs (integrated and Arc) go through Level Zero Sysman, Intel's
+cross-platform GPU API (Linux `libze_loader.so.1` from the
+`intel-level-zero-gpu` package, Windows `ze_loader.dll` from the
+graphics driver), runtime-loaded the same way as NVML. VRAM and
+temperature are point-in-time reads — on iGPUs the memory module is the
+shared-memory budget the driver exposes, not dedicated chips — while
+engine load and power are monotonic counters, so they are computed
+between two `refresh_gpus` calls (the first refresh reports `nil`).
 
 On Linux `/proc`'s top level lists only thread-group leaders, so
 per-thread RSS can never be double-counted (upstream sysinfo has to
