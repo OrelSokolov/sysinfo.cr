@@ -53,13 +53,16 @@ loop do
     puts "gpu      (no supported card/driver)"
   else
     Sysinfo.gpus.each_with_index do |gpu, i|
-      util = gpu.util_percent.try(&.to_s) || "?"
       temp = gpu.temp_c.try { |t| "#{t}°C" } || "?"
       draw = gpu.power_w.try { |w| w.round.to_i32 }
       cap = gpu.power_limit_w.try { |w| w.round.to_i32 }
       power = draw && cap ? "#{draw}/#{cap} W" : (draw.try { |w| "#{w} W" } || "?")
-      printf("gpu %d    %s | load %s%% | %s | %s\n",
-        i, gpu.name || gpu.vendor.to_s, util, temp, power)
+      printf("gpu %d    %s | %s | %s\n", i, gpu.name || gpu.vendor.to_s, temp, power)
+      if util = gpu.util_percent
+        printf("         load [%s] %3d%%\n", bar(util), util)
+      else
+        puts "         load (unknown)"
+      end
       if (used = gpu.mem_used_kb) && (total = gpu.mem_total_kb) && total > 0
         percent = gpu.mem_percent || 0
         printf("         vram [%s] %d/%d MB  %d%%\n",
