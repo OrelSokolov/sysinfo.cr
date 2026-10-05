@@ -52,17 +52,21 @@ loop do
   if Sysinfo.gpus.empty?
     puts "gpu      (no supported card/driver)"
   else
-    Sysinfo.gpus.each do |gpu|
+    Sysinfo.gpus.each_with_index do |gpu, i|
       util = gpu.util_percent.try(&.to_s) || "?"
-      if (used = gpu.mem_used_kb) && (total = gpu.mem_total_kb) && total > 0
-        vram = "#{used // 1024}/#{total // 1024} MB (#{gpu.mem_percent || "?"}%)"
-      else
-        vram = "?"
-      end
       temp = gpu.temp_c.try { |t| "#{t}°C" } || "?"
-      power = gpu.power_w.try { |p| "#{p.round} W" } || "?"
-      printf("gpu      %s | load %s%% | vram %s | %s | %s\n",
-        gpu.name || gpu.vendor.to_s, util, vram, temp, power)
+      draw = gpu.power_w.try { |w| w.round.to_i32 }
+      cap = gpu.power_limit_w.try { |w| w.round.to_i32 }
+      power = draw && cap ? "#{draw}/#{cap} W" : (draw.try { |w| "#{w} W" } || "?")
+      printf("gpu %d    %s | load %s%% | %s | %s\n",
+        i, gpu.name || gpu.vendor.to_s, util, temp, power)
+      if (used = gpu.mem_used_kb) && (total = gpu.mem_total_kb) && total > 0
+        percent = gpu.mem_percent || 0
+        printf("         vram [%s] %d/%d MB  %d%%\n",
+          bar(percent), used // 1024, total // 1024, percent)
+      else
+        puts "         vram (unknown)"
+      end
     end
   end
 
