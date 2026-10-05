@@ -29,13 +29,19 @@
         next unless pid
         ppid = nil
         rss_kb = 0_i64
-        File.each_line(File.join(proc_dir, "status")) do |line|
-          if line.starts_with?("PPid:")
-            ppid = line[5..].strip.to_i?
-          elsif line.starts_with?("VmRSS:")
-            rss_kb = line[7..].split.first?.try(&.to_i64) || 0_i64
-            break
+        begin
+          File.each_line(File.join(proc_dir, "status")) do |line|
+            if line.starts_with?("PPid:")
+              ppid = line[5..].strip.to_i?
+            elsif line.starts_with?("VmRSS:")
+              rss_kb = line[7..].split.first?.try(&.to_i64) || 0_i64
+              break
+            end
           end
+        rescue File::NotFoundError | File::AccessDeniedError
+          # The process died between the /proc listing and this read
+          # (or is hidden by hidepid) — skip it, not an error.
+          next
         end
         # PPid 0 = init / kernel thread (kernel threads lack VmRSS and
         # stay at 0 KB anyway).
