@@ -194,5 +194,10 @@
       end
       {received, sent}
     end
+
+    # No GPU backend on macOS (no NVML, no amdgpu sysfs).
+    def self.platform_gpus : Array(Gpu)
+      [] of Gpu
+    end
   end
 {% end %}

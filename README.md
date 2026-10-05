@@ -13,18 +13,31 @@ of the Rust [sysinfo](https://crates.io/crates/sysinfo) crate's surface:
   since the previous sample (first call is a baseline of zeros)
 - `Sysinfo.refresh_network` / `Sysinfo.network` — bytes received/sent since
   boot plus average rates since the previous sample, loopback excluded
+- `Sysinfo.refresh_gpus` / `Sysinfo.gpus` — one `Sysinfo::Gpu` per card:
+  load, VRAM used/total/percent, temperature, power and power limit
+  (plus PCIe gen/width on NVIDIA). Unreadable values are `nil`; nothing
+  here can raise into the caller.
 
 The library is synchronous, like the Rust crate — callers decide when
 and where to refresh (h2term hides it on a background fiber).
 
 ## Backends
 
-| Platform | RAM | Process table | CPU cores | Network |
-|---|---|---|---|---|
-| Linux | `/proc/meminfo` | `/proc/<pid>/status` (PPid + VmRSS) | `/proc/stat` | `/proc/net/dev` |
-| macOS | `sysctl` + `host_statistics64` | libproc (`proc_listallpids`, `proc_pidinfo`) | `host_processor_info` | `sysctl(NET_RT_IFLIST2)` |
-| Windows | `GlobalMemoryStatusEx` | Toolhelp32 + `GetProcessMemoryInfo` | `NtQuerySystemInformation` | `GetIfTable2` |
-| Other | `nil` | empty | — | — |
+| Platform | RAM | Process table | CPU cores | Network | GPU |
+|---|---|---|---|---|---|
+| Linux | `/proc/meminfo` | `/proc/<pid>/status` (PPid + VmRSS) | `/proc/stat` | `/proc/net/dev` | NVML (`dlopen`) + amdgpu sysfs |
+| macOS | `sysctl` + `host_statistics64` | libproc (`proc_listallpids`, `proc_pidinfo`) | `host_processor_info` | `sysctl(NET_RT_IFLIST2)` | — |
+| Windows | `GlobalMemoryStatusEx` | Toolhelp32 + `GetProcessMemoryInfo` | `NtQuerySystemInformation` | `GetIfTable2` | NVML (`LoadLibraryA`) |
+| Other | `nil` | empty | — | — | — |
+
+GPU readings come from the same sources Strata's monitor uses: NVIDIA's
+own NVML library, loaded at runtime from the driver (`libnvidia-ml.so.1`
+/ `nvml.dll`) so there is no compile-time binding, and — on Linux — the
+amdgpu driver's sysfs files (KFD topology → `renderD*` device →
+`gpu_busy_percent`, `mem_info_vram_*`, the `hwmon` temperature/power
+sensors); no ROCm library needed. AMD on Windows would need ADL, and
+Intel's xe driver only accounts VRAM per-client through root-only
+fdinfo, so neither reports GPUs here.
 
 On Linux `/proc`'s top level lists only thread-group leaders, so
 per-thread RSS can never be double-counted (upstream sysinfo has to
@@ -45,8 +58,8 @@ Sysinfo.refresh_processes
 Sysinfo.process_tree_memory_kb(Process.pid) # => whole tree RSS in KB
 ```
 
-A live monitor example (per-core CPU load, RAM, network throughput)
-lives in `example/monitor.cr`:
+A live monitor example (per-core CPU load, RAM, network throughput,
+GPU readings) lives in `example/monitor.cr`:
 
 ```sh
 crystal run example/monitor.cr

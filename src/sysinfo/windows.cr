@@ -229,5 +229,11 @@
       LibIphlpapi.free_mib_table(table.as(Void*))
       {received, sent}
     end
+
+    # GPU readings: the NVIDIA cards through runtime-loaded NVML (AMD
+    # on Windows would need ADL and is not covered).
+    def self.platform_gpus : Array(Gpu)
+      nvml_gpus
+    end
   end
 {% end %}

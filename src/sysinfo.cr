@@ -9,6 +9,8 @@
 #   Sysinfo.cpu_percentages           — per-core busy percent since the last sample
 #   Sysinfo.refresh_network           — sample interface counters, update rates
 #   Sysinfo.network                   — totals since boot + rates since the last sample
+#   Sysinfo.refresh_gpus              — read every supported GPU (VRAM, load, temp, power)
+#   Sysinfo.gpus                      — the last GPU snapshot
 #
 # The library is synchronous, like the Rust crate: callers decide when
 # and where to refresh (h2term hides it on a monitor fiber).
@@ -24,7 +26,13 @@
 #   Windows — GlobalMemoryStatusEx + Toolhelp32 process snapshot +
 #             GetProcessMemoryInfo for working sets (0 KB when access
 #             is denied), NtQuerySystemInformation for per-core CPU
-#             ticks, GetIfTable2 for interface byte counters.
+#             ticks, GetIfTable2 for interface byte counters, NVML
+#             (runtime LoadLibraryA) for NVIDIA GPUs.
+#   GPU     — NVIDIA through NVML loaded at runtime (Linux dlopen,
+#             Windows LoadLibraryA); AMD through the amdgpu driver's
+#             sysfs files on Linux; macOS / Intel Arc report no GPUs
+#             (Intel's xe driver only accounts VRAM per-client through
+#             root-only fdinfo).
 #   Other   — memory returns nil, processes stay empty.
 
 require "./sysinfo/*"

@@ -1,4 +1,5 @@
-# Example monitor: per-core CPU load, RAM usage, network throughput.
+# Example monitor: per-core CPU load, RAM usage, network throughput,
+# GPU load/VRAM/temperature.
 #
 #   crystal run example/monitor.cr
 #
@@ -45,6 +46,24 @@ loop do
       net.total_received_kb // 1024, net.total_sent_kb // 1024)
   else
     puts "net      (unknown on this platform)"
+  end
+
+  Sysinfo.refresh_gpus
+  if Sysinfo.gpus.empty?
+    puts "gpu      (no supported card/driver)"
+  else
+    Sysinfo.gpus.each do |gpu|
+      util = gpu.util_percent.try(&.to_s) || "?"
+      if (used = gpu.mem_used_kb) && (total = gpu.mem_total_kb) && total > 0
+        vram = "#{used // 1024}/#{total // 1024} MB (#{gpu.mem_percent || "?"}%)"
+      else
+        vram = "?"
+      end
+      temp = gpu.temp_c.try { |t| "#{t}°C" } || "?"
+      power = gpu.power_w.try { |p| "#{p.round} W" } || "?"
+      printf("gpu      %s | load %s%% | vram %s | %s | %s\n",
+        gpu.name || gpu.vendor.to_s, util, vram, temp, power)
+    end
   end
 
   sleep Time::Span.new(seconds: 1)
