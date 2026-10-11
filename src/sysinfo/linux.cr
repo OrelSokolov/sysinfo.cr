@@ -144,6 +144,43 @@
       Gpu.new(:amd, name, util, used_kb, total_kb, temp, power, power_limit)
     end
 
+    # Temperature sensors: every hwmon chip under /sys/class/hwmon,
+    # each of its temp<N>_inputs with its label and max/critical
+    # limits — the same tree the `sensors` tool reads.
+    def self.platform_sensors : Array(Sensor)
+      hwmon_sensors
+    end
+
+    # The hwmon sensor list; `base` is overridable for the specs.
+    def self.hwmon_sensors(base = "/sys") : Array(Sensor)
+      chips = File.join(base, "class", "hwmon")
+      return [] of Sensor unless Dir.exists?(chips)
+      sensors = [] of Sensor
+      Dir.children(chips)
+        .select { |entry| entry.starts_with?("hwmon") && entry[5..].to_i? }
+        .sort_by { |entry| entry[5..].to_i.not_nil! }
+        .each do |entry|
+          dir = File.join(chips, entry)
+          chip = File.read(File.join(dir, "name")).strip rescue ""
+          chip = entry if chip.empty?
+          Dir.children(dir)
+            .select { |file| file.starts_with?("temp") && file.ends_with?("_input") }
+            .sort_by { |file| file[4...-6].to_i? || Int32::MAX }
+            .each do |input|
+              # An input the driver currently answers nothing for is
+              # left out — every listed sensor carries a reading.
+              next unless millidegrees = read_sysfs_int(File.join(dir, input))
+              prefix = input.rchop("_input") # temp<N>
+              label = (File.read(File.join(dir, "#{prefix}_label")).strip rescue nil) || prefix
+              sensors << Sensor.new(chip, label,
+                (millidegrees / 1000.0).round.to_i32,
+                read_sysfs_int(File.join(dir, "#{prefix}_max")).try { |m| (m / 1000.0).round.to_i32 },
+                read_sysfs_int(File.join(dir, "#{prefix}_crit")).try { |m| (m / 1000.0).round.to_i32 })
+            end
+        end
+      sensors
+    end
+
     private def self.read_sysfs_int(path : String) : Int64?
       File.read(path).strip.to_i64?
     rescue

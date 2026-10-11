@@ -238,5 +238,11 @@
       gpus.concat(zes_gpus)
       gpus
     end
+
+    # No temperature sensor backend on Windows (would need WMI/SMBIOS
+    # plumbing; out of scope).
+    def self.platform_sensors : Array(Sensor)
+      [] of Sensor
+    end
   end
 {% end %}

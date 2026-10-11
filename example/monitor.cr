@@ -1,5 +1,5 @@
 # Example monitor: per-core CPU load, RAM usage, network throughput,
-# GPU load/VRAM/temperature.
+# GPU load/VRAM/temperature, temperature sensors.
 #
 #   crystal run example/monitor.cr
 #
@@ -70,6 +70,18 @@ loop do
       else
         puts "         vram (unknown)"
       end
+    end
+  end
+
+  Sysinfo.refresh_sensors
+  if Sysinfo.sensors.empty?
+    puts "temp     (no sensors / unknown on this platform)"
+  else
+    Sysinfo.sensors.each do |sensor|
+      next unless temp = sensor.temp_c
+      crit = sensor.critical_c.try { |c| "  crit #{c}°C" } || ""
+      printf("temp     %-26s [%s] %3d°C%s\n",
+        "#{sensor.chip} #{sensor.label}", bar(temp.clamp(0, 100)), temp, crit)
     end
   end
 

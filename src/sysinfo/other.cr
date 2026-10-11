@@ -22,5 +22,9 @@
     def self.platform_gpus : Array(Gpu)
       [] of Gpu
     end
+
+    def self.platform_sensors : Array(Sensor)
+      [] of Sensor
+    end
   end
 {% end %}

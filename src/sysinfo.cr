@@ -11,6 +11,8 @@
 #   Sysinfo.network                   — totals since boot + rates since the last sample
 #   Sysinfo.refresh_gpus              — read every supported GPU (VRAM, load, temp, power)
 #   Sysinfo.gpus                      — the last GPU snapshot
+#   Sysinfo.refresh_sensors           — read every temperature sensor
+#   Sysinfo.sensors                   — the last sensor snapshot
 #
 # The library is synchronous, like the Rust crate: callers decide when
 # and where to refresh (h2term hides it on a monitor fiber).
@@ -35,6 +37,9 @@
 #             loaded at runtime on Linux and Windows; macOS reports no
 #             GPUs. Level Zero's engine load and power are counters, so
 #             they only exist after the second refresh_gpus.
+#   Sensors — hwmon sysfs on Linux (/sys/class/hwmon: CPU packages
+#             and cores, drive controllers, GPUs, ACPI zones); other
+#             platforms report none.
 #   Other   — memory returns nil, processes stay empty.
 
 require "./sysinfo/*"

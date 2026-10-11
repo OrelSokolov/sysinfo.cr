@@ -56,6 +56,38 @@ describe Sysinfo do
       bare.util_percent.should be_nil
       bare.temp_c.should be_nil
     end
+
+    it "reads hwmon temperature sensors" do
+      base = File.join(__DIR__, "fixtures", "sys")
+      sensors = Sysinfo.hwmon_sensors(base)
+
+      # hwmon1/2/10 in numeric order, temp inputs likewise; the empty
+      # temp2_input of acpitz is left out entirely.
+      sensors.size.should eq(5)
+
+      package = sensors[0]
+      package.chip.should eq("coretemp")
+      package.label.should eq("Package id 0")
+      package.temp_c.should eq(45)
+      package.max_c.should eq(80)
+      package.critical_c.should eq(100)
+      sensors[1].label.should eq("Core 0")
+      sensors[1].temp_c.should eq(44)
+      sensors[1].max_c.should be_nil
+      sensors[2].label.should eq("Core 1")
+      sensors[2].temp_c.should eq(43)
+
+      # A chip without temp<N>_label falls back to the input name.
+      acpi = sensors[3]
+      acpi.chip.should eq("acpitz")
+      acpi.label.should eq("temp1")
+      acpi.temp_c.should eq(28)
+
+      sensors[4].chip.should eq("nvme")
+      sensors[4].label.should eq("Composite")
+      sensors[4].temp_c.should eq(37)
+      sensors[4].critical_c.should eq(84)
+    end
   {% end %}
 
   {% if flag?(:linux) || flag?(:darwin) || flag?(:windows) %}
@@ -101,6 +133,15 @@ describe Sysinfo do
         end
         if percent = gpu.mem_percent
           (0..100).should contain(percent)
+        end
+      end
+    end
+    it "refreshes the sensor snapshot without raising" do
+      Sysinfo.refresh_sensors
+      Sysinfo.sensors.each do |sensor|
+        sensor.chip.should_not be_empty
+        if temp = sensor.temp_c
+          (-50..150).should contain(temp)
         end
       end
     end
