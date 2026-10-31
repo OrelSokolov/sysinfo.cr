@@ -37,6 +37,8 @@ loop do
     puts "ram      (unknown on this platform)"
   end
 
+  puts
+
   if net = Sysinfo.network
     rx = net.received_kb_s.clamp(0, 10_000).to_i32
     tx = net.sent_kb_s.clamp(0, 10_000).to_i32
@@ -47,6 +49,8 @@ loop do
   else
     puts "net      (unknown on this platform)"
   end
+
+  puts
 
   Sysinfo.refresh_gpus
   if Sysinfo.gpus.empty?
@@ -72,6 +76,8 @@ loop do
       end
     end
   end
+  
+  puts
 
   Sysinfo.refresh_sensors
   if Sysinfo.sensors.empty?
