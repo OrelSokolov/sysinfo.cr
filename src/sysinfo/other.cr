@@ -18,5 +18,13 @@
     def self.platform_network_counters : {UInt64, UInt64}?
       nil
     end
+
+    def self.platform_gpus : Array(Gpu)
+      [] of Gpu
+    end
+
+    def self.platform_sensors : Array(Sensor)
+      [] of Sensor
+    end
   end
 {% end %}

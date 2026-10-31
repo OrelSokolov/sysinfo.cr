@@ -194,5 +194,16 @@
       end
       {received, sent}
     end
+
+    # No GPU backend on macOS (no NVML, no amdgpu sysfs).
+    def self.platform_gpus : Array(Gpu)
+      [] of Gpu
+    end
+
+    # No temperature sensor backend on macOS (would need SMC access
+    # through private IOService interfaces).
+    def self.platform_sensors : Array(Sensor)
+      [] of Sensor
+    end
   end
 {% end %}

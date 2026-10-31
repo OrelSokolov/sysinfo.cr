@@ -9,9 +9,86 @@ describe Sysinfo do
     Sysinfo::Memory.new(0, 0).percent.should eq(0)
   end
 
+  it "computes gpu vram percent" do
+    gpu = Sysinfo::Gpu.new(:nvidia, mem_used_kb: 250_i64, mem_total_kb: 1000_i64)
+    gpu.mem_percent.should eq(25)
+    Sysinfo::Gpu.new(:nvidia).mem_percent.should be_nil
+    Sysinfo::Gpu.new(:nvidia, mem_used_kb: 250_i64, mem_total_kb: 0_i64).mem_percent.should be_nil
+  end
+
+  {% if flag?(:linux) || flag?(:windows) %}
+    it "computes intel engine load between snapshots" do
+      # 40% busy over a 10ms window
+      Sysinfo::Zes.delta_percent(0_u64, 0_u64, 4_000_000_u64, 10_000_000_u64).should eq(40)
+      Sysinfo::Zes.delta_percent(0_u64, 0_u64, 10_000_000_u64, 10_000_000_u64).should eq(100)
+      # same snapshot twice: no measurable window
+      Sysinfo::Zes.delta_percent(5_u64, 5_u64, 5_u64, 5_u64).should be_nil
+      # counter reset / driver reinit clamps to zero, not negative
+      Sysinfo::Zes.delta_percent(9_u64, 0_u64, 1_u64, 5_u64).should eq(0)
+    end
+  {% end %}
+
   it "reports unknown tree memory for nil pid" do
     Sysinfo.process_tree_memory_kb(nil).should eq(0)
   end
+
+  {% if flag?(:linux) %}
+    it "finds amdgpu devices through the kfd topology" do
+      base = File.join(__DIR__, "fixtures", "sys")
+      dirs = Sysinfo.amd_device_dirs(base)
+      dirs.should eq([File.join(base, "class", "drm", "renderD128", "device"),
+                      File.join(base, "class", "drm", "renderD129", "device")])
+
+      gpu = Sysinfo.amd_gpu(dirs.first)
+      gpu.vendor.should eq(:amd)
+      gpu.name.should eq("AMD Radeon RX 6700 XT")
+      gpu.util_percent.should eq(42)
+      gpu.mem_used_kb.should eq(1_048_576)
+      gpu.mem_total_kb.should eq(4_194_304)
+      gpu.mem_percent.should eq(25)
+      gpu.temp_c.should eq(42)
+      gpu.power_w.should eq(12.0)
+      gpu.power_limit_w.should eq(150.0)
+
+      # A device folder without any readable files keeps nil readings.
+      bare = Sysinfo.amd_gpu(dirs.last)
+      bare.name.should eq("AMD Radeon")
+      bare.util_percent.should be_nil
+      bare.temp_c.should be_nil
+    end
+
+    it "reads hwmon temperature sensors" do
+      base = File.join(__DIR__, "fixtures", "sys")
+      sensors = Sysinfo.hwmon_sensors(base)
+
+      # hwmon1/2/10 in numeric order, temp inputs likewise; the empty
+      # temp2_input of acpitz is left out entirely.
+      sensors.size.should eq(5)
+
+      package = sensors[0]
+      package.chip.should eq("coretemp")
+      package.label.should eq("Package id 0")
+      package.temp_c.should eq(45)
+      package.max_c.should eq(80)
+      package.critical_c.should eq(100)
+      sensors[1].label.should eq("Core 0")
+      sensors[1].temp_c.should eq(44)
+      sensors[1].max_c.should be_nil
+      sensors[2].label.should eq("Core 1")
+      sensors[2].temp_c.should eq(43)
+
+      # A chip without temp<N>_label falls back to the input name.
+      acpi = sensors[3]
+      acpi.chip.should eq("acpitz")
+      acpi.label.should eq("temp1")
+      acpi.temp_c.should eq(28)
+
+      sensors[4].chip.should eq("nvme")
+      sensors[4].label.should eq("Composite")
+      sensors[4].temp_c.should eq(37)
+      sensors[4].critical_c.should eq(84)
+    end
+  {% end %}
 
   {% if flag?(:linux) || flag?(:darwin) || flag?(:windows) %}
     it "reads global memory" do
@@ -45,6 +122,28 @@ describe Sysinfo do
       net.not_nil!.received_kb_s.should eq(0)
       Sysinfo.refresh_network
       Sysinfo.network.not_nil!.received_kb_s.should be >= 0
+    end
+
+    it "refreshes the gpu snapshot without raising" do
+      Sysinfo.refresh_gpus
+      Sysinfo.gpus.each do |gpu|
+        gpu.name.should_not be_nil
+        if util = gpu.util_percent
+          (0..100).should contain(util)
+        end
+        if percent = gpu.mem_percent
+          (0..100).should contain(percent)
+        end
+      end
+    end
+    it "refreshes the sensor snapshot without raising" do
+      Sysinfo.refresh_sensors
+      Sysinfo.sensors.each do |sensor|
+        sensor.chip.should_not be_empty
+        if temp = sensor.temp_c
+          (-50..150).should contain(temp)
+        end
+      end
     end
   {% end %}
 end

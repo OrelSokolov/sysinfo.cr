@@ -13,24 +13,57 @@ of the Rust [sysinfo](https://crates.io/crates/sysinfo) crate's surface:
   since the previous sample (first call is a baseline of zeros)
 - `Sysinfo.refresh_network` / `Sysinfo.network` — bytes received/sent since
   boot plus average rates since the previous sample, loopback excluded
+- `Sysinfo.refresh_gpus` / `Sysinfo.gpus` — one `Sysinfo::Gpu` per card:
+  load, VRAM used/total/percent, temperature, power and power limit
+  (plus PCIe gen/width on NVIDIA). Unreadable values are `nil`; nothing
+  here can raise into the caller.
+- `Sysinfo.refresh_sensors` / `Sysinfo.sensors` — one
+  `Sysinfo::Sensor` per temperature input (chip, label,
+  current / max / critical °C). Unreadable values are `nil`; nothing
+  here can raise into the caller.
 
 The library is synchronous, like the Rust crate — callers decide when
 and where to refresh (h2term hides it on a background fiber).
 
 ## Backends
 
-| Platform | RAM | Process table | CPU cores | Network |
-|---|---|---|---|---|
-| Linux | `/proc/meminfo` | `/proc/<pid>/status` (PPid + VmRSS) | `/proc/stat` | `/proc/net/dev` |
-| macOS | `sysctl` + `host_statistics64` | libproc (`proc_listallpids`, `proc_pidinfo`) | `host_processor_info` | `sysctl(NET_RT_IFLIST2)` |
-| Windows | `GlobalMemoryStatusEx` | Toolhelp32 + `GetProcessMemoryInfo` | `NtQuerySystemInformation` | `GetIfTable2` |
-| Other | `nil` | empty | — | — |
+| Platform | RAM | Process table | CPU cores | Network | GPU | Temp sensors |
+|---|---|---|---|---|---|---|
+| Linux | `/proc/meminfo` | `/proc/<pid>/status` (PPid + VmRSS) | `/proc/stat` | `/proc/net/dev` | NVML (`dlopen`) + amdgpu sysfs + Level Zero (`dlopen`) | hwmon sysfs |
+| macOS | `sysctl` + `host_statistics64` | libproc (`proc_listallpids`, `proc_pidinfo`) | `host_processor_info` | `sysctl(NET_RT_IFLIST2)` | — | — |
+| Windows | `GlobalMemoryStatusEx` | Toolhelp32 + `GetProcessMemoryInfo` | `NtQuerySystemInformation` | `GetIfTable2` | NVML (`LoadLibraryA`) + Level Zero (`LoadLibraryA`) | — |
+| Other | `nil` | empty | — | — | — | — |
+
+GPU readings come from the same sources Strata's monitor uses: NVIDIA's
+own NVML library, loaded at runtime from the driver (`libnvidia-ml.so.1`
+/ `nvml.dll`) so there is no compile-time binding, and — on Linux — the
+amdgpu driver's sysfs files (KFD topology → `renderD*` device →
+`gpu_busy_percent`, `mem_info_vram_*`, the `hwmon` temperature/power
+sensors); no ROCm library needed. AMD on Windows would need ADL, so it
+is not covered there.
+
+Intel GPUs (integrated and Arc) go through Level Zero Sysman, Intel's
+cross-platform GPU API (Linux `libze_loader.so.1` from the
+`intel-level-zero-gpu` package, Windows `ze_loader.dll` from the
+graphics driver), runtime-loaded the same way as NVML. VRAM and
+temperature are point-in-time reads — on iGPUs the memory module is the
+shared-memory budget the driver exposes, not dedicated chips — while
+engine load and power are monotonic counters, so they are computed
+between two `refresh_gpus` calls (the first refresh reports `nil`).
 
 On Linux `/proc`'s top level lists only thread-group leaders, so
 per-thread RSS can never be double-counted (upstream sysinfo has to
 filter thread entries explicitly). On macOS, `proc_pidinfo` only
 succeeds for processes the current uid may signal; the snapshot skips
 everyone else.
+
+Temperature sensors come from hwmon sysfs (`/sys/class/hwmon`) on
+Linux — the same tree the `sensors` tool reads: one `Sysinfo::Sensor`
+per `temp<N>_input` (CPU packages and cores, drive controllers, GPUs,
+ACPI zones), with the chip name, the sensor label and the driver's
+max/critical limits when it publishes them. Windows (WMI/SMBIOS) and
+macOS (SMC) would each need their own plumbing and report no sensors
+here.
 
 ## Use
 
@@ -45,8 +78,8 @@ Sysinfo.refresh_processes
 Sysinfo.process_tree_memory_kb(Process.pid) # => whole tree RSS in KB
 ```
 
-A live monitor example (per-core CPU load, RAM, network throughput)
-lives in `example/monitor.cr`:
+A live monitor example (per-core CPU load, RAM, network throughput,
+GPU readings, temperature sensors) lives in `example/monitor.cr`:
 
 ```sh
 crystal run example/monitor.cr

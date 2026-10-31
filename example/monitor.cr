@@ -1,4 +1,5 @@
-# Example monitor: per-core CPU load, RAM usage, network throughput.
+# Example monitor: per-core CPU load, RAM usage, network throughput,
+# GPU load/VRAM/temperature, temperature sensors.
 #
 #   crystal run example/monitor.cr
 #
@@ -45,6 +46,43 @@ loop do
       net.total_received_kb // 1024, net.total_sent_kb // 1024)
   else
     puts "net      (unknown on this platform)"
+  end
+
+  Sysinfo.refresh_gpus
+  if Sysinfo.gpus.empty?
+    puts "gpu      (no supported card/driver)"
+  else
+    Sysinfo.gpus.each_with_index do |gpu, i|
+      temp = gpu.temp_c.try { |t| "#{t}°C" } || "?"
+      draw = gpu.power_w.try { |w| w.round.to_i32 }
+      cap = gpu.power_limit_w.try { |w| w.round.to_i32 }
+      power = draw && cap ? "#{draw}/#{cap} W" : (draw.try { |w| "#{w} W" } || "?")
+      printf("gpu %d    %s | %s | %s\n", i, gpu.name || gpu.vendor.to_s, temp, power)
+      if util = gpu.util_percent
+        printf("         load [%s] %3d%%\n", bar(util), util)
+      else
+        puts "         load (unknown)"
+      end
+      if (used = gpu.mem_used_kb) && (total = gpu.mem_total_kb) && total > 0
+        percent = gpu.mem_percent || 0
+        printf("         vram [%s] %d/%d MB  %d%%\n",
+          bar(percent), used // 1024, total // 1024, percent)
+      else
+        puts "         vram (unknown)"
+      end
+    end
+  end
+
+  Sysinfo.refresh_sensors
+  if Sysinfo.sensors.empty?
+    puts "temp     (no sensors / unknown on this platform)"
+  else
+    Sysinfo.sensors.each do |sensor|
+      next unless temp = sensor.temp_c
+      crit = sensor.critical_c.try { |c| "  crit #{c}°C" } || ""
+      printf("temp     %-26s [%s] %3d°C%s\n",
+        "#{sensor.chip} #{sensor.label}", bar(temp.clamp(0, 100)), temp, crit)
+    end
   end
 
   sleep Time::Span.new(seconds: 1)

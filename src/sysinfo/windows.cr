@@ -229,5 +229,20 @@
       LibIphlpapi.free_mib_table(table.as(Void*))
       {received, sent}
     end
+
+    # GPU readings: the NVIDIA cards through runtime-loaded NVML and
+    # the Intel GPUs through runtime-loaded Level Zero Sysman (AMD on
+    # Windows would need ADL and is not covered).
+    def self.platform_gpus : Array(Gpu)
+      gpus = nvml_gpus
+      gpus.concat(zes_gpus)
+      gpus
+    end
+
+    # No temperature sensor backend on Windows (would need WMI/SMBIOS
+    # plumbing; out of scope).
+    def self.platform_sensors : Array(Sensor)
+      [] of Sensor
+    end
   end
 {% end %}
